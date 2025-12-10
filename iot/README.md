@@ -20,3 +20,7 @@ Arduino-based firmware for the Intelligent Nutrition Management system.
 ## Usage
 Upload `SmartRose_INM.ino` for production use or `Sensor_Test.ino` for debugging.
 
+
+
+
+

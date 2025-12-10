@@ -26,3 +26,7 @@ Sensors → Arduino → Data Collection → ML Model → Predictions → Actuato
 - Python 3.9+ for ML components
 - scikit-learn for model training
 
+
+
+
+
