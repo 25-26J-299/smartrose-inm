@@ -201,7 +201,7 @@ void loop() {
 
   // ---------- JSON ----------
   String json = "{";
-  json += "\"device_id\":\"esp32_01\",";
+  json += "\"device_id\":\"esp32_001\",";
   json += "\"timestamp\":\"" + timestamp + "\",";
   json += "\"soil_moisture\":" + String(moisture) + ",";
   json += "\"soil_temp\":" + String(soilTemp) + ",";
