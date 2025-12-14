@@ -1,22 +1,139 @@
 # IoT - SmartRose INM
 
 ## Overview
-Arduino-based firmware for the Intelligent Nutrition Management system.
-
-## Files
-- `SmartRose_INM.ino` - Main firmware for nutrient monitoring and control
-- `Sensor_Test.ino` - Test sketch for sensor validation
+ESP32-based firmware for the Intelligent Nutrition Management system. Reads real sensors and POSTs data to the backend API.
 
 ## Hardware Requirements
-- Arduino board (Uno/Mega/ESP32)
-- Nutrient sensors
-- Pump/actuator module
 
-## Setup
-1. Install Arduino IDE
-2. Connect hardware components
-3. Upload the appropriate sketch
+### Microcontroller
+- **ESP32 DevKit** (recommended: ESP32-WROOM-32)
 
-## Usage
-Upload `SmartRose_INM.ino` for production use or `Sensor_Test.ino` for debugging.
+### Sensors
+| Sensor | Type | Interface | Purpose |
+|--------|------|-----------|---------|
+| NPK Sensor | RS485 Modbus | UART | Nitrogen, Phosphorus, Potassium |
+| pH Sensor | Analog | ADC | Soil acidity |
+| EC Sensor | Analog | ADC | Electrical Conductivity |
+| Soil Moisture | Capacitive | ADC | Soil water content |
+| DS18B20 | Digital | OneWire | Soil temperature |
+| DHT22 | Digital | GPIO | Air temperature & humidity |
 
+## Wiring Diagram
+
+```
+ESP32 Pin Connections:
+─────────────────────────────────────────────────────
+│ ESP32 Pin │ Sensor              │ Wire Color    │
+─────────────────────────────────────────────────────
+│ GPIO 34   │ Soil Moisture (OUT) │ Yellow        │
+│ GPIO 35   │ pH Sensor (OUT)     │ Yellow        │
+│ GPIO 32   │ EC Sensor (OUT)     │ Yellow        │
+│ GPIO 4    │ DHT22 (DATA)        │ Yellow        │
+│ GPIO 5    │ DS18B20 (DATA)      │ Yellow        │
+│ GPIO 16   │ NPK RS485 (RX)      │ Green         │
+│ GPIO 17   │ NPK RS485 (TX)      │ Blue          │
+│ GPIO 18   │ NPK RS485 (DE/RE)   │ White         │
+│ 3.3V      │ Sensor VCC          │ Red           │
+│ GND       │ Sensor GND          │ Black         │
+─────────────────────────────────────────────────────
+```
+
+## Configuration
+
+Before uploading, update these values in `SmartRose_INM.ino`:
+
+```cpp
+// WiFi credentials
+const char* WIFI_SSID = "YOUR_WIFI_SSID";
+const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+
+// Backend API endpoint
+const char* API_URL = "http://YOUR_SERVER_IP:8000/api/v1/inm/sensor-data";
+
+// Device ID
+const char* DEVICE_ID = "esp32_001";
+```
+
+## Required Libraries
+
+Install these in Arduino IDE (Sketch → Include Library → Manage Libraries):
+
+1. **ArduinoJson** by Benoit Blanchon
+2. **DHT sensor library** by Adafruit
+3. **OneWire** by Paul Stoffregen
+4. **DallasTemperature** by Miles Burton
+
+## Upload Instructions
+
+1. Open Arduino IDE
+2. Go to **File → Preferences**
+3. Add ESP32 board URL: `https://dl.espressif.com/dl/package_esp32_index.json`
+4. Go to **Tools → Board → Boards Manager** → Install "ESP32"
+5. Select **Tools → Board → ESP32 Dev Module**
+6. Select your COM port
+7. Click **Upload**
+
+## Files
+
+| File | Description |
+|------|-------------|
+| `SmartRose_INM.ino` | Main firmware - reads sensors & POSTs to backend |
+| `Sensor_Test.ino` | Test sketch for debugging individual sensors |
+| `dummy_post.py` | Python simulator for testing without hardware |
+
+## Sensor Calibration
+
+### Soil Moisture
+```cpp
+#define SOIL_DRY_VALUE     4095  // ADC reading in dry air
+#define SOIL_WET_VALUE     1500  // ADC reading in water
+```
+Adjust these values based on your sensor by testing in dry and wet conditions.
+
+### pH Sensor
+```cpp
+#define PH_OFFSET          0.0   // Adjust after buffer calibration
+#define PH_SLOPE           3.5   // mV per pH unit
+```
+Calibrate using pH 4.0 and pH 7.0 buffer solutions.
+
+### EC Sensor
+```cpp
+#define EC_COEFFICIENT     1.0   // Adjust based on calibration solution
+```
+
+## Data Format (JSON Payload)
+
+```json
+{
+  "device_id": "esp32_001",
+  "soil_moisture": 45.2,
+  "soil_temp": 22.5,
+  "ec": 520,
+  "ph": 6.8,
+  "N": 120,
+  "P": 85,
+  "K": 200,
+  "air_temp": 28.3,
+  "air_hum": 65.0
+}
+```
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| WiFi won't connect | Check SSID/password, ensure 2.4GHz network |
+| NPK reads -1 | Check RS485 wiring, verify baud rate (9600) |
+| pH reads wrong | Recalibrate with buffer solutions |
+| Soil temp -999 | Check DS18B20 wiring, add 4.7kΩ pull-up resistor |
+| DHT22 fails | Add 10kΩ pull-up on DATA pin |
+
+## Testing Without Hardware
+
+Use the Python simulator:
+```bash
+cd iot
+pip install requests
+python dummy_post.py
+```

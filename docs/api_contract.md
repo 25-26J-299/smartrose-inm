@@ -49,3 +49,9 @@
 | E002 | Communication timeout |
 | E003 | Invalid command |
 
+
+
+
+
+
+
