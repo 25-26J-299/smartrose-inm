@@ -30,3 +30,5 @@ Sensors → Arduino → Data Collection → ML Model → Predictions → Actuato
 
 
 
+
+
