@@ -18,7 +18,7 @@ const char* WIFI_SSID = "SLT_FIBRE188";
 const char* WIFI_PASSWORD = "20021226";
 
 // ⚠️ Use PC IP, NOT localhost
-const char* SERVER_URL = "http://192.168.1.2:8000/api/v1/inm/sensor-data";
+const char* SERVER_URL = "http://192.168.1.4:8000/api/v1/inm/sensor-data";
 
 // ---------- NTP Time (Sri Lanka UTC +5:30) ----------
 const char* NTP_SERVER = "pool.ntp.org";
