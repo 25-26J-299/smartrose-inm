@@ -15,10 +15,10 @@ pip-delete-this-directory.txt
 *.ipynb_checkpoints
 
 # ML Models (large files)
-*.pkl
 *.h5
 *.onnx
 !ml/models/.gitkeep
+!ml/models/*.pkl
 
 # Data files
 *.csv

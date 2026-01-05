@@ -1,7 +1,7 @@
 /****************************************************
-   NPK 7-in-1 + SHT3x + SD backup + WiFi upload
+   NPK 7-in-1 + SHT3x + SD Store-and-Forward + Archive
    ESP32 DevKit V1
-   FINAL VERSION (SD FIX + SERIAL PRINTS + REAL TIME)
+   FINAL PRODUCTION VERSION (FIXED & SAFE)
 *****************************************************/
 
 #include <ModbusMaster.h>
@@ -14,18 +14,15 @@
 #include <time.h>
 
 // ---------- WiFi ----------
-const char* WIFI_SSID = "SLT_FIBRE188";
+const char* WIFI_SSID     = "SLT_FIBRE188";
 const char* WIFI_PASSWORD = "20021226";
+const char* SERVER_URL    = "http://192.168.1.2:8000/api/v1/inm/sensor-data";
 
-// ⚠️ Use PC IP, NOT localhost
-const char* SERVER_URL = "http://192.168.1.2:8000/api/v1/inm/sensor-data";
-
-// ---------- NTP Time (Sri Lanka UTC +5:30) ----------
+// ---------- Time ----------
 const char* NTP_SERVER = "pool.ntp.org";
 const long GMT_OFFSET_SEC = 5 * 3600 + 30 * 60;
-const int DAYLIGHT_OFFSET_SEC = 0;
 
-// ---------- Modbus / RS485 ----------
+// ---------- RS485 ----------
 ModbusMaster node;
 #define RXD2 16
 #define TXD2 17
@@ -36,74 +33,117 @@ Adafruit_SHT31 sht31 = Adafruit_SHT31();
 
 // ---------- SD ----------
 #define SD_CS_PIN 5
-const char* SD_FILENAME = "/sensor_log.csv";
+const char* SD_PENDING = "/pending.csv";
+const char* SD_ARCHIVE = "/archive.csv";
+const char* SD_TEMP    = "/temp.csv";
 
-// ---------- RS485 control ----------
-void preTransmission() { digitalWrite(RS485_EN, HIGH); }
+// ---------- RS485 ----------
+void preTransmission()  { digitalWrite(RS485_EN, HIGH); }
 void postTransmission() { digitalWrite(RS485_EN, LOW); }
 
-// ---------- Get real date & time ----------
+// ---------- Time (ISO 8601 FIX) ----------
 String getCurrentDateTime() {
-  struct tm timeinfo;
-  if (!getLocalTime(&timeinfo)) {
-    return "1970-01-01 00:00:00";
-  }
-  char buffer[25];
-  strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", &timeinfo);
-  return String(buffer);
+  struct tm t;
+  if (!getLocalTime(&t)) return "1970-01-01T00:00:00";
+  char buf[25];
+  strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S", &t); // ✅ FIX
+  return String(buf);
 }
 
-// ---------- SD ----------
-bool sdInit() {
-  Serial.print("Initializing SD...");
-  if (!SD.begin(SD_CS_PIN)) {
-    Serial.println(" failed!");
-    return false;
+// ---------- CSV → JSON ----------
+String csvToJson(String csv) {
+  String v[10];
+  int i = 0;
+
+  while (csv.length() && i < 10) {
+    int p = csv.indexOf(',');
+    if (p == -1) { v[i++] = csv; break; }
+    v[i++] = csv.substring(0, p);
+    csv = csv.substring(p + 1);
   }
-  Serial.println(" ok");
-  return true;
+
+  return "{"
+    "\"device_id\":\"esp32_001\","
+    "\"timestamp\":\"" + v[0] + "\","
+    "\"soil_moisture\":" + v[1] + ","
+    "\"soil_temp\":" + v[2] + ","
+    "\"ec\":" + v[3] + ","
+    "\"ph\":" + v[4] + ","
+    "\"N\":" + v[5] + ","
+    "\"P\":" + v[6] + ","
+    "\"K\":" + v[7] + ","
+    "\"air_temp\":" + v[8] + ","
+    "\"air_hum\":" + v[9] +
+  "}";
 }
 
-// ✅ FIXED: re-mount SD before every write
-void appendToSD(String line) {
-  if (!SD.begin(SD_CS_PIN)) {
-    Serial.println("⚠️ SD card not available");
-    return;
-  }
-
-  File file = SD.open(SD_FILENAME, FILE_APPEND);
-  if (!file) {
-    Serial.println("⚠️ Failed to open log file");
-    return;
-  }
-
-  file.println(line);
-  file.close();
-  Serial.println("💾 SD Log Saved");
-}
-
-// ---------- Send JSON to backend ----------
-void sendToBackend(String json) {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("🌐 WiFi: DISCONNECTED → Upload skipped");
-    return;
-  }
+// ---------- Upload ONE record ----------
+bool uploadCsvLine(const String& csv) {
+  if (WiFi.status() != WL_CONNECTED) return false;
 
   HTTPClient http;
   http.begin(SERVER_URL);
   http.addHeader("Content-Type", "application/json");
 
-  int httpCode = http.POST(json);
+  int code = http.POST(csvToJson(csv));
+  http.end();
 
-  if (httpCode > 0) {
-    Serial.print("☁️ Backend Upload: SUCCESS (HTTP ");
-    Serial.print(httpCode);
-    Serial.println(")");
-  } else {
-    Serial.println("❌ Backend Upload: FAILED");
+  Serial.print("🌐 HTTP code: ");
+  Serial.println(code);
+
+  return (code == 200 || code == 201);
+}
+
+// ---------- Upload OLD data ----------
+void sendPendingFromSD() {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  File in = SD.open(SD_PENDING, FILE_READ);
+  if (!in) return;
+
+  File out = SD.open(SD_TEMP, FILE_WRITE);
+  if (!out) {
+    in.close();
+    return;
   }
 
-  http.end();
+  // Copy header
+  String header = in.readStringUntil('\n');
+  out.println(header);
+
+  bool anyUploaded = false;
+
+  while (in.available()) {
+    String line = in.readStringUntil('\n');
+    line.trim();
+
+    if (line.length() == 0 || line.startsWith("datetime")) continue;
+
+    Serial.print("⬆️ [OLD] Uploading → ");
+    Serial.println(line);
+
+    if (uploadCsvLine(line)) {
+      Serial.println("☁️ [OLD] Uploaded OK");
+      anyUploaded = true;
+    } else {
+      Serial.println("⚠️ [OLD] Failed → keeping");
+      out.println(line);
+      break; // stop on first failure
+    }
+
+    delay(150);
+  }
+
+  in.close();
+  out.close();
+
+  if (anyUploaded) {
+    SD.remove(SD_PENDING);
+    SD.rename(SD_TEMP, SD_PENDING);
+    Serial.println("🗂️ pending.csv updated");
+  } else {
+    SD.remove(SD_TEMP);
+  }
 }
 
 // ---------- Setup ----------
@@ -122,99 +162,80 @@ void setup() {
   Wire.begin(21, 22);
   sht31.begin(0x44);
 
-  sdInit();
+  if (!SD.begin(SD_CS_PIN)) {
+    Serial.println("❌ SD init failed");
+    return;
+  }
+  Serial.println("✅ SD ready");
 
-  if (!SD.exists(SD_FILENAME)) {
-    File f = SD.open(SD_FILENAME, FILE_WRITE);
+  if (!SD.exists(SD_PENDING)) {
+    File f = SD.open(SD_PENDING, FILE_WRITE);
     f.println("datetime,soil_moisture,soil_temp,ec,ph,N,P,K,air_temp,air_hum");
     f.close();
   }
 
-  // ---------- WiFi ----------
-  Serial.print("📡 Connecting to WiFi");
+  if (!SD.exists(SD_ARCHIVE)) {
+    File f = SD.open(SD_ARCHIVE, FILE_WRITE);
+    f.println("datetime,soil_moisture,soil_temp,ec,ph,N,P,K,air_temp,air_hum");
+    f.close();
+  }
+
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("📡 Connecting WiFi");
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
-  Serial.println("\n📶 WiFi connected");
+  Serial.println("\n📶 WiFi Connected");
 
-  // ---------- NTP ----------
-  configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER);
-  Serial.print("🕒 Syncing time");
-  while (getCurrentDateTime().startsWith("1970")) {
-    Serial.print(".");
-    delay(500);
-  }
-  Serial.println("\n🕒 Time synchronized");
+  configTime(GMT_OFFSET_SEC, 0, NTP_SERVER);
 }
 
 // ---------- Loop ----------
 void loop() {
-  uint8_t result = node.readHoldingRegisters(0x0000, 7);
+  node.readHoldingRegisters(0x0000, 7);
 
-  float moisture = -1, soilTemp = -1, ph = -1;
-  int ec = -1, N = -1, P = -1, K = -1;
-
-  if (result == node.ku8MBSuccess) {
-    moisture = node.getResponseBuffer(0) / 10.0;
-    soilTemp = node.getResponseBuffer(1) / 10.0;
-    ec       = node.getResponseBuffer(2);
-    ph       = node.getResponseBuffer(3) / 10.0;
-    N        = node.getResponseBuffer(4);
-    P        = node.getResponseBuffer(5);
-    K        = node.getResponseBuffer(6);
-  } else {
-    Serial.println("⚠️ NPK Modbus Read Error");
-  }
+  float moisture = node.getResponseBuffer(0) / 10.0;
+  float soilTemp = node.getResponseBuffer(1) / 10.0;
+  int ec         = node.getResponseBuffer(2);
+  float ph       = node.getResponseBuffer(3) / 10.0;
+  int N          = node.getResponseBuffer(4);
+  int P          = node.getResponseBuffer(5);
+  int K          = node.getResponseBuffer(6);
 
   float airTemp = sht31.readTemperature();
   float airHum  = sht31.readHumidity();
 
-  String timestamp = getCurrentDateTime();
 
-  // ---------- SERIAL OUTPUT ----------
-  Serial.println("\n=================================");
-  Serial.print("📅 Date & Time      : "); Serial.println(timestamp);
-
-  Serial.println("🌱 Soil Sensor (NPK 7-in-1)");
-  Serial.print("  Moisture (%)     : "); Serial.println(moisture);
-  Serial.print("  Soil Temp (°C)   : "); Serial.println(soilTemp);
-  Serial.print("  EC               : "); Serial.println(ec);
-  Serial.print("  pH               : "); Serial.println(ph);
-  Serial.print("  Nitrogen (N)     : "); Serial.println(N);
-  Serial.print("  Phosphorus (P)   : "); Serial.println(P);
-  Serial.print("  Potassium (K)    : "); Serial.println(K);
-
-  Serial.println("🌡️ Air Sensor (SHT31)");
-  Serial.print("  Air Temp (°C)    : "); Serial.println(airTemp);
-  Serial.print("  Air Humidity (%) : "); Serial.println(airHum);
-
-  // ---------- CSV ----------
-  String csv = timestamp + "," +
-               moisture + "," + soilTemp + "," + ec + "," + ph + "," +
-               N + "," + P + "," + K + "," +
+  String ts = getCurrentDateTime();
+  String csv = ts + "," + moisture + "," + soilTemp + "," + ec + "," +
+               ph + "," + N + "," + P + "," + K + "," +
                airTemp + "," + airHum;
 
-  delay(50);                 // SPI settle
-  appendToSD(csv);           // robust SD write
+  Serial.print("📊 [NEW] ");
+  Serial.println(csv);
 
-  // ---------- JSON ----------
-  String json = "{";
-  json += "\"device_id\":\"esp32_001\",";
-  json += "\"timestamp\":\"" + timestamp + "\",";
-  json += "\"soil_moisture\":" + String(moisture) + ",";
-  json += "\"soil_temp\":" + String(soilTemp) + ",";
-  json += "\"ec\":" + String(ec) + ",";
-  json += "\"ph\":" + String(ph) + ",";
-  json += "\"N\":" + String(N) + ",";
-  json += "\"P\":" + String(P) + ",";
-  json += "\"K\":" + String(K) + ",";
-  json += "\"air_temp\":" + String(airTemp) + ",";
-  json += "\"air_hum\":" + String(airHum);
-  json += "}";
+  // ---- ARCHIVE ALWAYS ----
+  File archive = SD.open(SD_ARCHIVE, FILE_APPEND);
+  archive.println(csv);
+  archive.close();
 
-  sendToBackend(json);
+  // ---- TRY IMMEDIATE UPLOAD ----
+  if (!uploadCsvLine(csv)) {
+    File pending = SD.open(SD_PENDING, FILE_APPEND);
+    pending.println(csv);
+    pending.close();
+    Serial.println("💾 [NEW] Saved to pending");
+  } else {
+    Serial.println("🚀 [NEW] Uploaded immediately");
+  }
 
-  delay(2000);
+  // ---- RETRY OLD ----
+  sendPendingFromSD();
+
+  delay(120000); // adjust as needed
+
+  //delay(300000);   // 5 minutes
+  //delay(120000);   // 2 minutes
+  //delay(2000)  //2 seconds
 }
