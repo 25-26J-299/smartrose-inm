@@ -9,6 +9,12 @@ import time
 # Set the URL of your INM sensor-data endpoint
 API_URL = "http://localhost:8000/api/v1/inm/sensor-data"
 
+# IMPORTANT: This must match the device_serial_number registered in the admin
+# dashboard for this device. Change this to match the specific INM device you
+# are simulating (e.g. "INM-001", "INM-002").
+# Never use the same DEVICE_ID for two different physical devices.
+DEVICE_ID = "INM-001"
+
 
 def generate_dummy_reading():
     """
@@ -16,7 +22,7 @@ def generate_dummy_reading():
     NPK + pH + EC + soil + air data
     """
     return {
-        "device_id": "esp32_001",
+        "device_id": DEVICE_ID,
         
         # Soil sensors
         "soil_moisture": round(random.uniform(30.0, 70.0), 1),
