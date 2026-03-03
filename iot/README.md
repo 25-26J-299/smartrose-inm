@@ -48,11 +48,32 @@ const char* WIFI_SSID = "YOUR_WIFI_SSID";
 const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 
 // Backend API endpoint
-const char* API_URL = "http://YOUR_SERVER_IP:8000/api/v1/inm/sensor-data";
+const char* SERVER_URL = "http://YOUR_SERVER_IP:8000/api/v1/inm/sensor-data";
 
-// Device ID
-const char* DEVICE_ID = "esp32_001";
+// Device ID — MUST be unique per physical board
+const char* DEVICE_ID = "INM-001";
 ```
+
+### Device ID rules (important)
+
+| Rule | Detail |
+|------|--------|
+| **Unique per board** | Every physical ESP32 must have a different `DEVICE_ID`. Never flash the same ID onto two boards — their sensor data will mix in the database and ownership will break. |
+| **Must match admin registration** | When the admin registers this device in the SmartRose admin dashboard, they must use the exact same string as `device_serial_number`. |
+| **Stable** | Never change the `DEVICE_ID` of a device that is already deployed and assigned to a user/greenhouse. If you change it you must re-register it in admin. |
+| **Naming convention** | Use the format `INM-XXX` (e.g. `INM-001`, `INM-002`, `INM-003`). Label the physical device/box with the same string. |
+
+### Provisioning a new INM device (step-by-step)
+
+1. Pick the next available ID: `INM-001`, `INM-002`, etc.
+2. Set `DEVICE_ID = "INM-00X"` in `SmartRose_INM.ino`.
+3. Flash the firmware onto the ESP32.
+4. Stick a label `INM-00X` on the physical device and/or box.
+5. Ask the admin to register this device in the SmartRose admin dashboard:
+   - `device_serial_number = INM-00X`
+   - `type = INM`
+   - assign to the correct user and greenhouse.
+6. Power the device — it will start posting data automatically.
 
 ## Required Libraries
 

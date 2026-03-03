@@ -18,6 +18,16 @@ const char* WIFI_SSID     = "SLT_FIBRE188";
 const char* WIFI_PASSWORD = "20021226";
 const char* SERVER_URL    = "http://192.168.1.2:8000/api/v1/inm/sensor-data";
 
+// ---------- Device Identity ----------
+// IMPORTANT: Each physical INM ESP32 board must have a UNIQUE device_id.
+// This value MUST match the device_serial_number registered by the admin
+// in the SmartRose admin dashboard for this device.
+// When flashing a new board, change this to the next ID (e.g. INM-002, INM-003).
+// Never use the same ID on two boards — their data will mix in the database.
+
+//const char* DEVICE_ID = "INM-001";
+const char* DEVICE_ID = "esp32_001";
+
 // ---------- Time ----------
 const char* NTP_SERVER = "pool.ntp.org";
 const long GMT_OFFSET_SEC = 5 * 3600 + 30 * 60;
@@ -63,7 +73,7 @@ String csvToJson(String csv) {
   }
 
   return "{"
-    "\"device_id\":\"esp32_001\","
+    "\"device_id\":\"" + String(DEVICE_ID) + "\","
     "\"timestamp\":\"" + v[0] + "\","
     "\"soil_moisture\":" + v[1] + ","
     "\"soil_temp\":" + v[2] + ","
